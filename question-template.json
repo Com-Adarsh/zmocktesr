@@ -1,0 +1,14 @@
+[
+  {
+    "external_id": "Q1",
+    "question": "Replace with a question from an authorised paper.",
+    "type": "single_choice",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "answer": "Option A",
+    "marks": 4,
+    "negative_marks": 1,
+    "explanation": "Optional explanation.",
+    "section": "Optional section",
+    "topic": "Optional topic"
+  }
+]

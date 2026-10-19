@@ -1,0 +1,165 @@
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+new file mode 100644
+index 0000000..90e61b8
+--- /dev/null
++++ b/.github/workflows/build.yml
+@@ -0,0 +1,23 @@
++name: Build and test
++
++on:
++  push:
++    branches: [main, 'fix/**']
++  pull_request:
++
++permissions:
++  contents: read
++
++jobs:
++  build:
++    runs-on: ubuntu-latest
++    timeout-minutes: 15
++    steps:
++      - uses: actions/checkout@v4
++      - uses: actions/setup-node@v4
++        with:
++          node-version: '22'
++          cache: npm
++      - run: npm ci
++      - run: npm test
++      - run: npm run build
+diff --git a/components/auth-form.tsx b/components/auth-form.tsx
+index e7c1533..eef8531 100644
+--- a/components/auth-form.tsx
++++ b/components/auth-form.tsx
+@@ -25,11 +25,11 @@ export default function AuthForm() {
+       setBusy(false);
+       return;
+     }
+-    const client = createBrowserClient(url, key);
+     const email = String(data.get("email") ?? "");
+     const password = String(data.get("password") ?? "");
+     const action = String(data.get("action"));
+     try {
++      const client = createBrowserClient(url, key);
+       const result = action === "signup"
+         ? await client.auth.signUp({ email, password, options: { data: { display_name: String(data.get("name") ?? "") } } })
+         : await client.auth.signInWithPassword({ email, password });
+diff --git a/docs/DEPLOYMENT.md b/docs/DEPLOYMENT.md
+index ba2baed..beb6547 100644
+--- a/docs/DEPLOYMENT.md
++++ b/docs/DEPLOYMENT.md
+@@ -11,7 +11,23 @@
+ 
+ ## Vercel
+ 
+-Import the repository into Vercel with the Next.js framework preset. Set environment variables separately for Preview and Production. Do not use production credentials for preview deployments. Build command is `npm run build`; install command is `npm install`.
++Import `Com-Adarsh/ZMock-test-` into Vercel with the Next.js framework preset and the repository root as the Root Directory. Set environment variables separately for Preview and Production. Do not use production credentials for preview deployments.
++
++The tracked `vercel.json` explicitly selects Next.js, installs the lockfile with `npm ci`, builds with `npm run build`, and uses `.next` as the build output. This prevents an older project's "Other" preset or static output override from silently serving an empty/static deployment. Do not add a catch-all rewrite to `index.html`; this app requires Next.js server routes.
++
++Use Node.js 22.x for the same runtime as the build workflow. The workflow runs the regression tests and a production build on pull requests and pushes to `main` or `fix/**` branches; it does not configure a database or Vercel domain.
++
++### If the URL returns Vercel `404 NOT_FOUND`
++
++This platform error is distinct from an application exception. A successful GitHub Vercel status alone does not prove that the intended production domain serves the app.
++
++1. Open the Vercel deployment linked from the latest commit's status. During the 19 October 2026 investigation, the linked project was `catmocktest`, while `https://sficusatcatmocktest.vercel.app/` returned Vercel's `404 NOT_FOUND` page.
++2. Verify that the project's Git repository is `Com-Adarsh/ZMock-test-`, the Production Branch is `main`, and the Root Directory is the repository root (leave it empty), not `app` or `public`.
++3. Deploy the commit containing `vercel.json`. In the build log, confirm that `next build` runs and produces the `/`, `/login`, `/courses` and API routes. If the root is wrong, correct it in project settings first.
++4. In Settings > Domains, verify that `sficusatcatmocktest.vercel.app` belongs to this project and is assigned to Production. If it belongs to another project, resolve that ownership/assignment in Vercel rather than guessing a replacement URL.
++5. Verify the ready deployment is assigned to Production, then test both its deployment URL and the intended domain. A working deployment URL with a failing domain points to domain assignment; two failing URLs require checking the build/output settings and deployment logs.
++
++Missing Supabase variables intentionally produce a setup notice. They do not explain a Vercel platform 404. Once the URL serves the app, configure Supabase and apply the migration to a reviewed staging database before testing the complete exam workflow.
+ 
+ Validate sign-in, invitation, RLS boundaries, course publishing, test-code validation, import, attempt limits, autosave, expiry submission, scoring and release controls on a non-production project before enabling production traffic.
+ 
+diff --git a/lib/auth.ts b/lib/auth.ts
+index d973da3..0ae6b16 100644
+--- a/lib/auth.ts
++++ b/lib/auth.ts
+@@ -1,5 +1,6 @@
+ import { redirect } from "next/navigation";
+ import { createSupabaseServerClient } from "@/lib/supabase/server";
++import { getOptionalUser } from "@/lib/optional-user";
+ 
+ export type Role = "admin" | "mediator" | "student";
+ 
+@@ -24,7 +25,6 @@ export async function requireRole(allowed: Role[]) {
+ export async function getCurrentUser() {
+   const supabase = await createSupabaseServerClient();
+   if (!supabase) return null;
+-  const { data: { user }, error } = await supabase.auth.getUser();
+-  if (error) throw new Error(`Unable to verify account: ${error.message}`);
++  const user = await getOptionalUser(supabase);
+   return user ? { supabase, user } : null;
+ }
+diff --git a/lib/optional-user.ts b/lib/optional-user.ts
+new file mode 100644
+index 0000000..6642c93
+--- /dev/null
++++ b/lib/optional-user.ts
+@@ -0,0 +1,10 @@
++import type { SupabaseClient } from "@supabase/supabase-js";
++
++// Public navigation needs a verified user when present, but does not require login.
++export async function getOptionalUser(client: Pick<SupabaseClient, "auth">) {
++  const { data: { user }, error } = await client.auth.getUser();
++  // Supabase reports this expected state as an error for a fresh browser.
++  if (error?.name === "AuthSessionMissingError") return null;
++  if (error) throw new Error(`Unable to verify account: ${error.message}`);
++  return user;
++}
+diff --git a/tests/optional-user.test.mjs b/tests/optional-user.test.mjs
+new file mode 100644
+index 0000000..088a63a
+--- /dev/null
++++ b/tests/optional-user.test.mjs
+@@ -0,0 +1,35 @@
++import assert from "node:assert/strict";
++import test from "node:test";
++import { getOptionalUser } from "../lib/optional-user.ts";
++
++function clientReturning(user, error = null) {
++  return { auth: { getUser: async () => ({ data: { user }, error }) } };
++}
++
++test("a signed-out visitor can render public pages without a session", async () => {
++  const missingSession = Object.assign(new Error("Auth session missing!"), {
++    name: "AuthSessionMissingError", status: 400,
++  });
++  assert.equal(await getOptionalUser(clientReturning(null, missingSession)), null);
++});
++
++test("a verified signed-in user is returned", async () => {
++  const user = { id: "verified-user" };
++  assert.equal(await getOptionalUser(clientReturning(user)), user);
++});
++
++test("a successful response without a user is anonymous", async () => {
++  assert.equal(await getOptionalUser(clientReturning(null)), null);
++});
++
++test("unexpected authentication failures are not silently swallowed", async () => {
++  await assert.rejects(
++    getOptionalUser(clientReturning(null, new Error("Auth service unavailable"))),
++    /Unable to verify account: Auth service unavailable/,
++  );
++});
++
++test("network exceptions are not mistaken for a missing session", async () => {
++  const client = { auth: { getUser: async () => { throw new Error("Network unavailable"); } } };
++  await assert.rejects(getOptionalUser(client), /Network unavailable/);
++});
+diff --git a/vercel.json b/vercel.json
+new file mode 100644
+index 0000000..f896120
+--- /dev/null
++++ b/vercel.json
+@@ -0,0 +1,7 @@
++{
++  "$schema": "https://openapi.vercel.sh/vercel.json",
++  "framework": "nextjs",
++  "installCommand": "npm ci",
++  "buildCommand": "npm run build",
++  "outputDirectory": ".next"
++}
