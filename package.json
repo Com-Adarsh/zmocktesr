@@ -1,6 +1,6 @@
 {
-  "name": "sfi-cusat-mock-test",
-  "version": "1.0.0",
+  "name": "sfi-mock-test-platform",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,11 +8,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test tests/*.test.mjs"
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.7.0",
-    "@supabase/supabase-js": "^2.57.0",
+    "@netlify/database": "^2.0.1",
+    "drizzle-orm": "^1.0.0-beta.22",
     "next": "^16.4.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
@@ -21,6 +22,7 @@
     "@types/node": "^22.15.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "drizzle-kit": "^1.0.0-beta.22",
     "eslint": "^9.30.0",
     "eslint-config-next": "^16.4.2",
     "typescript": "^5.8.3"
